@@ -1,0 +1,116 @@
+name: Deploy Application
+
+on:
+  workflow_call:
+    inputs:
+      app-name:
+        description: Github App name.
+        type: string
+        required: true
+      app-id:
+        description: Github App ID.
+        type: string
+        required: true
+      application:
+        description: The name of the application to be deployed.
+        type: string
+        required: true
+      image:
+        description: The image being deployed.
+        type: string
+        required: true
+      tag:
+        description: The image tag being deployed.
+        type: string
+        required: true
+    secrets:
+      app-secret:
+        description: Github App private key.
+        required: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/setup-node@v3
+      - run: npm install @octokit/request @octokit/rest @octokit/auth-app
+
+      - name: Get Github App token
+        uses: actions/github-script@v6
+        id: github-token
+        env:
+          APP_ID: ${{ inputs.app-id }}
+          APP_SECRET: ${{ secrets.app-secret }}
+          APPLICATION: ${{ inputs.application }}
+          IMAGE: ${{ inputs.image }}
+          TAG: ${{ inputs.tag }}
+        with:
+          result-encoding: string
+          script: |
+            const { Octokit } = require('@octokit/rest')
+            const { createAppAuth } = require('@octokit/auth-app')
+            const { request } = require('@octokit/request')
+
+            const appOctokit = new Octokit({
+              authStrategy: createAppAuth,
+              auth: {
+                appId: process.env.APP_ID,
+                privateKey: process.env.APP_SECRET,
+              },
+              request: { fetch },
+            })
+
+            const { data: { id: installationId } } = await appOctokit.rest.apps.getRepoInstallation({
+              owner: 'nevivurn',
+              repo: 'cd-test-config',
+            })
+
+            const auth = createAppAuth({
+              appId: process.env.APP_ID,
+              privateKey: process.env.APP_SECRET,
+              request: request.defaults({
+                request: { fetch },
+              })
+            })
+            const { token } = await auth({
+              type: 'installation',
+              installationId,
+            })
+            return token
+
+      - name: Get Github App user ID
+        id: user-id
+        run: echo "user-id=$(curl -gsSf "https://api.github.com/users/$APP_NAME[bot]" | jq -r .id)" >> "$GITHUB_OUTPUT"
+        env:
+          APP_NAME: ${{ inputs.app-name }}
+
+      - uses: actions/checkout@v3
+        with:
+          repository: nevivurn/cd-test-config
+          ref: master
+          token: ${{ steps.github-token.outputs.result }}
+
+      - uses: actions/setup-python@v4
+      - run: pip install -r scripts/requirements.txt
+
+      - name: Patch manifests
+        run: ./scripts/patch_application.py "$APPLICATION" "$IMAGE" "$TAG"
+        env:
+          APPLICATION: ${{ inputs.application }}
+          IMAGE: ${{ inputs.image }}
+          TAG: ${{ inputs.tag }}
+      - run: git diff
+
+      - name: Commit and push changes
+        run: |
+          git config --global user.name "$APP_NAME[bot]"
+          git config --global user.email "$USER_ID+$APP_NAME[bot]@users.noreply.github.com"
+          git commit -am "Automated patch from $FROM_REPO@$FROM_REF" -m "Triggered from $FROM_REPO@$FROM_SHA"
+          git push
+        env:
+          APP_NAME: ${{ inputs.app-name }}
+          APP_ID: ${{ inputs.app-id }}
+          USER_ID: ${{ steps.user-id.outputs.user-id }}
+          FROM_REPO: ${{ github.repository }}
+          FROM_SHA: ${{ github.sha }}
+          FROM_REF: ${{ github.ref_name }}
