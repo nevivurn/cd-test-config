@@ -1,0 +1,7 @@
+# list of application -> (filename, path, template) mappings.
+# template defaults to ${image}:${tag} if omitted.
+
+- application: nevivurn/cd-test-code
+  filename: test.yaml
+  path: c.d
+  #template: $image:$tag
