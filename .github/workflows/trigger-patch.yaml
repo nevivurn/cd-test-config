@@ -4,22 +4,18 @@ on:
       target-owner:
         description: The target repo owner.
         type: string
-        required: true
         default: nevivurn
       target-repo:
         description: The target repo.
         type: string
-        required: true
         default: cd-test-config
       target-workflow:
         description: The target workflow.
         type: string
-        required: true
         default: patch-application.yaml
       target-ref:
         description: The target workflow ref.
         type: string
-        required: true
         default: master
 
       application:
