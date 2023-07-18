@@ -55,7 +55,7 @@ jobs:
           script: |
             const { TARGET_OWNER, TARGET_REPO, TARGET_WORKFLOW, TARGET_REF } = process.env
             const { APPLICATION, IMAGE, TAG } = process.env
-            rest.actions.createWorkflowDispatch({
+            github.rest.actions.createWorkflowDispatch({
               owner: TARGET_OWNER,
               repo: TARGET_REPO,
               workflow_id: TARGET_WORKFLOW,
