@@ -79,8 +79,8 @@ jobs:
             return token
 
       - name: Get Github App user ID
-        id: user-id
-        run: echo "user-id=$(curl -gsSf "https://api.github.com/users/$APP_NAME[bot]" | jq -r .id)" >> "$GITHUB_OUTPUT"
+        id: app-bot-id
+        run: echo "app-bot-id=$(curl -gsSf "https://api.github.com/users/$APP_NAME[bot]" | jq -r .id)" >> "$GITHUB_OUTPUT"
         env:
           APP_NAME: ${{ inputs.app-name }}
 
@@ -103,14 +103,18 @@ jobs:
 
       - name: Commit and push changes
         run: |
-          git config --global user.name "$APP_NAME[bot]"
-          git config --global user.email "$USER_ID+$APP_NAME[bot]@users.noreply.github.com"
-          git commit -am "Automated patch from $FROM_REPO@$FROM_REF" -m "Triggered from $FROM_REPO@$FROM_SHA"
+          git config --global user.name "$COMMIT_NAME"
+          git config --global user.email "$COMMIT_EMAIL"
+          git commit \
+            -a --author="$AUTHOR_NAME <$AUTHOR_EMAIL>" \
+            -am "Automated patch from $FROM_REPO@$FROM_REF" \
+            -m "Triggered from $FROM_REPO@$FROM_SHA"
           git push
         env:
-          APP_NAME: ${{ inputs.app-name }}
-          APP_ID: ${{ inputs.app-id }}
-          USER_ID: ${{ steps.user-id.outputs.user-id }}
+          COMMIT_NAME: ${{ inputs.app-name }}[bot]
+          COMMIT_EMAIL: ${{ steps.app-bot-id.outputs.app-bot-id }}+${{ inputs.app-name }}[bot]@users.noreply.github.com
+          AUTHOR_NAME: ${{ github.actor }}
+          AUTHOR_EMAIL: ${{ github.actor_id }}+${{ github.actor }}@users.noreply.github.com
           FROM_REPO: ${{ github.repository }}
           FROM_SHA: ${{ github.sha }}
           FROM_REF: ${{ github.ref_name }}
