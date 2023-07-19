@@ -78,20 +78,19 @@ jobs:
               installationId,
               request: request.defaults({
                 request: { fetch },
-              })
+              }),
             })({ type: "installation" })
 
-            return {
-              token,
-              appSlug,
-              appUserId
-            }
+            core.setOutput('appBot', `${appSlug}[bot]`)
+            core.setOutput('appUserId', appUserId)
+            core.setSecret(token)
+            core.setOutput('token', token)
 
       - uses: actions/checkout@v3
         with:
           repository: nevivurn/cd-test-config
           ref: master
-          token: ${{ fromJSON(steps.app-details.outputs.result).token }}
+          token: ${{ steps.app-details.outputs.token }}
 
       - uses: actions/setup-python@v4
         with:
@@ -104,17 +103,16 @@ jobs:
           APPLICATION: ${{ inputs.application }}
           IMAGE: ${{ inputs.image }}
           TAG: ${{ inputs.tag }}
-      - run: git diff
 
       - name: Commit and push changes
         run: |
-          git commit \
-            -am "Deploy $FROM_REPO ($FROM_REF)" \
+          git commit -a \
+            -m "Deploy $FROM_REPO ($FROM_REF)" \
             -m "$FROM_WORKFLOW triggered from $FROM_REPO@$FROM_SHA"
           git push
         env:
-          GIT_COMMITTER_NAME: ${{ fromJSON(steps.app-details.outputs.result).appSlug }}[bot]
-          GIT_COMMITTER_EMAIL: ${{ fromJSON(steps.app-details.outputs.result).appUserId }}+${{ fromJSON(steps.app-details.outputs.result).appSlug }}[bot]@users.noreply.github.com
+          GIT_COMMITTER_NAME: ${{ steps.app-details.outputs.appBot }}
+          GIT_COMMITTER_EMAIL: ${{ steps.app-details.outputs.appUserId }}+${{ steps.app-details.outputs.appBot }}@users.noreply.github.com
           GIT_AUTHOR_NAME: ${{ github.actor }}
           GIT_AUTHOR_EMAIL: ${{ github.actor_id }}+${{ github.actor }}@users.noreply.github.com
           FROM_REPO: ${{ github.repository }}
