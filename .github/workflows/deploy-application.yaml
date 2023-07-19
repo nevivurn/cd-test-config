@@ -3,14 +3,6 @@ name: Deploy Application
 on:
   workflow_call:
     inputs:
-      app-name:
-        description: Github App name.
-        type: string
-        required: true
-      app-id:
-        description: Github App ID.
-        type: string
-        required: true
       application:
         description: The name of the application to be deployed.
         type: string
@@ -24,6 +16,9 @@ on:
         type: string
         required: true
     secrets:
+      app-id:
+        description: Github App ID.
+        required: true
       app-secret:
         description: Github App private key.
         required: true
@@ -33,19 +28,17 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/setup-node@v3
+        with:
+          node-version: 18
       - run: npm install @octokit/request @octokit/rest @octokit/auth-app
 
-      - name: Get Github App token
+      - name: Fetch app details
         uses: actions/github-script@v6
-        id: github-token
+        id: app-details
         env:
-          APP_ID: ${{ inputs.app-id }}
+          APP_ID: ${{ secrets.app-id }}
           APP_SECRET: ${{ secrets.app-secret }}
-          APPLICATION: ${{ inputs.application }}
-          IMAGE: ${{ inputs.image }}
-          TAG: ${{ inputs.tag }}
         with:
-          result-encoding: string
           script: |
             const { Octokit } = require('@octokit/rest')
             const { createAppAuth } = require('@octokit/auth-app')
@@ -65,32 +58,44 @@ jobs:
               repo: 'cd-test-config',
             })
 
-            const auth = createAppAuth({
+            const octokit = new Octokit({
+              authStrategy: createAppAuth,
+              auth: {
+                appId: process.env.APP_ID,
+                privateKey: process.env.APP_SECRET,
+                installationId,
+              },
+              request: { fetch },
+            })
+            const { data: { slug: appSlug } } = await octokit.rest.apps.getAuthenticated()
+            const { data: { id: appUserId } } = await octokit.rest.users.getByUsername({
+              username: `${appSlug}[bot]`,
+            })
+
+            const { token } = await createAppAuth({
               appId: process.env.APP_ID,
               privateKey: process.env.APP_SECRET,
+              installationId,
               request: request.defaults({
                 request: { fetch },
               })
-            })
-            const { token } = await auth({
-              type: 'installation',
-              installationId,
-            })
-            return token
+            })({ type: "installation" })
 
-      - name: Get Github App user ID
-        id: app-bot-id
-        run: echo "app-bot-id=$(curl -gsSf "https://api.github.com/users/$APP_NAME[bot]" | jq -r .id)" >> "$GITHUB_OUTPUT"
-        env:
-          APP_NAME: ${{ inputs.app-name }}
+            return {
+              token,
+              appSlug,
+              appUserId
+            }
 
       - uses: actions/checkout@v3
         with:
           repository: nevivurn/cd-test-config
           ref: master
-          token: ${{ steps.github-token.outputs.result }}
+          token: ${{ fromJSON(steps.app-details.outputs.result).token }}
 
       - uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
       - run: pip install -r scripts/requirements.txt
 
       - name: Patch manifests
@@ -103,18 +108,16 @@ jobs:
 
       - name: Commit and push changes
         run: |
-          git config --global user.name "$COMMIT_NAME"
-          git config --global user.email "$COMMIT_EMAIL"
           git commit \
-            -a --author="$AUTHOR_NAME <$AUTHOR_EMAIL>" \
-            -am "Automated patch from $FROM_REPO@$FROM_REF" \
-            -m "Triggered from $FROM_REPO@$FROM_SHA"
+            -am "Deploy $FROM_REPO ($FROM_REF)" \
+            -m "$FROM_WORKFLOW triggered from $FROM_REPO@$FROM_SHA"
           git push
         env:
-          COMMIT_NAME: ${{ inputs.app-name }}[bot]
-          COMMIT_EMAIL: ${{ steps.app-bot-id.outputs.app-bot-id }}+${{ inputs.app-name }}[bot]@users.noreply.github.com
-          AUTHOR_NAME: ${{ github.actor }}
-          AUTHOR_EMAIL: ${{ github.actor_id }}+${{ github.actor }}@users.noreply.github.com
+          GIT_COMMITTER_NAME: ${{ fromJSON(steps.app-details.outputs.result).appSlug }}[bot]
+          GIT_COMMITTER_EMAIL: ${{ fromJSON(steps.app-details.outputs.result).appUserId }}+${{ fromJSON(steps.app-details.outputs.result).appSlug }}[bot]@users.noreply.github.com
+          GIT_AUTHOR_NAME: ${{ github.actor }}
+          GIT_AUTHOR_EMAIL: ${{ github.actor_id }}+${{ github.actor }}@users.noreply.github.com
           FROM_REPO: ${{ github.repository }}
           FROM_SHA: ${{ github.sha }}
           FROM_REF: ${{ github.ref_name }}
+          FROM_WORKFLOW: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
